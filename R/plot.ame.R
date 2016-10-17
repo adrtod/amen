@@ -8,7 +8,7 @@
 #' @param ... additional parameters (not used)
 #' @return a series of plots
 #' @author Peter Hoff
-#' @S3method plot ame
+#' @export
 plot.ame <-
 function(x, ...)
 {  

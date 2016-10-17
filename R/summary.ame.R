@@ -7,7 +7,7 @@
 #' @return a summary of parameter estimates and confidence intervals for an AME
 #' fit
 #' @author Peter Hoff
-#' @S3method summary ame
+#' @export
 summary.ame <-
 function(object, ...)
 { 

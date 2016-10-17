@@ -76,6 +76,7 @@
 #' 
 #'  
 #' @export ame
+#' @importFrom igraph transitivity
 ame<-function (Y,Xdyad=NULL, Xrow=NULL, Xcol=NULL, 
        rvar = !(model=="rrl") , cvar = TRUE, dcor = !symmetric, 
        nvar=TRUE, 
@@ -198,14 +199,29 @@ ame<-function (Y,Xdyad=NULL, Xrow=NULL, Xcol=NULL,
 
 
   # output items
+  nsamples <- ceiling(nscan/odens)
   BETA <- matrix(nrow = 0, ncol = dim(X)[3] - pr*symmetric)
-  VC<-matrix(nrow=0,ncol=5-3*symmetric) 
+  VC<-matrix(nrow=nsamples,ncol=5-3*symmetric) 
   UVPS <- U %*% t(V) * 0 
   APS<-BPS<- rep(0,nrow(Y))  
   YPS<-matrix(0,nrow(Y),ncol(Y)) ; dimnames(YPS)<-dimnames(Y)
-  GOF<-matrix(gofstats(Y),1,4)  
-  rownames(GOF)<-"obs"
-  colnames(GOF)<- c("sd.rowmean","sd.colmean","dyad.dep","triad.dep")
+  
+  
+
+  
+  
+  GOF<-matrix(data=NA, nrow=nsamples, ncol=1) 
+  GOF2<-matrix(data=NA, nrow=nsamples, ncol=nrow(Y)) # degree of nodes
+  #YSsave<-array(0, dim=c(nsamples,nrow(Y),ncol(Y))) # sampled matrices
+  Asave <- matrix(0, nsamples, nrow(Y))
+  BETAsave <- matrix(0, nsamples, 1)
+  SAsave <- matrix(0, nsamples, 1)
+  Usave <- array(0, dim=c(nsamples, nrow(Y),R))
+  
+  
+  #rownames(GOF)<-"obs"
+  #colnames(GOF)<- c("sd.rowmean","sd.colmean","dyad.dep","triad.dep")
+  colnames(GOF)<- c("transitivity")
   names(APS)<-names(BPS)<- rownames(U)<-rownames(V)<-rownames(Y)
  
   # names of parameters, asymmetric case 
@@ -333,16 +349,20 @@ ame<-function (Y,Xdyad=NULL, Xrow=NULL, Xcol=NULL,
     # save parameter values and monitor the MC
     if(s%%odens==0 & s>burn) 
     {  
+      ksave = ceiling((s-burn)/odens)
+      #cat(ksave, nsamples, '\n')
+      
 
        # save BETA and VC - symmetric case 
-      if(symmetric)
-      {
-        br<-beta[rb] ; bc<-beta[cb] ; bn<-(br+bc)/2 
-        sbeta<-c(beta[1*intercept],bn,beta[-c(1*intercept,rb,cb)] )
-        BETA<-rbind(BETA,sbeta)
+      # FC: COMMENTED TO SAVE TIME
+      #if(symmetric)
+      #{
+        #br<-beta[rb] ; bc<-beta[cb] ; bn<-(br+bc)/2 
+        #sbeta<-c(beta[1*intercept],bn,beta[-c(1*intercept,rb,cb)] )
+        #BETA<-rbind(BETA,sbeta)
 
-        VC<-rbind(VC,c(Sab[1,1],s2) )
-      }
+        #VC<-rbind(VC,c(Sab[1,1],s2) )
+      #}
 
       # save BETA and VC - asymmetric case 
       if(!symmetric)
@@ -371,48 +391,58 @@ ame<-function (Y,Xdyad=NULL, Xrow=NULL, Xcol=NULL,
 
       # update posterior sum
       YPS<-YPS+Ys
+      
+      # Save stuff
+      VC[ksave,]<-c(Sab[1,1],s2) 
+      #YSsave[ksave,,] <- Ys
+      Asave[ksave,] <- a
+      BETAsave[ksave,] <- beta
+      SAsave[ksave] <- Sab[1,1]
+      Usave[ksave,,] <-U      
 
       # save posterior predictive GOF stats
-      if(gof){ Ys[is.na(Y)]<-NA ; GOF<-rbind(GOF,gofstats(Ys)) }
+      #if(gof){ Ys[is.na(Y)]<-NA ; GOF<-rbind(GOF,gofstats(Ys)); GOF2<-rbind(GOF2,gofstats2(Ys)) }
+      #if(gof){ Ys[is.na(Y)]<-NA ; GOF[ksave,]<-gofstats(Ys); GOF2[ksave,]<-gofstats2(Ys) }
+      if(gof){ Ys[is.na(Y)]<-NA ; GOF[ksave,1]<-igraph::transitivity(graph_from_adjacency_matrix(Ys, mode="undirected", diag=FALSE)); GOF2[ksave,]<-gofstats2(Ys) }
 
       # print MC progress 
-      if (print) 
-      {
-        cat(s,round(apply(BETA,2,mean),2),":",round(apply(VC,2,mean),2),"\n")
-        if (have_coda & nrow(VC) > 3 & length(beta)>0) 
-        {
-          cat(round(coda::effectiveSize(BETA)), "\n")
-        }
-      }
+       if (print) 
+       {
+         cat(s,beta,":",c(Sab[1,1],s2),"\n")
+#         if (have_coda & nrow(VC[1:ksave,]) > 3 & length(beta)>0) 
+#         {
+#           cat(round(coda::effectiveSize(BETA)), "\n")
+#         }
+       }
 
       # plot MC progress
-      if(plot) 
-      { 
+      if(plot)
+      {
         # plot VC
         par(mfrow=c(1+2*gof,2),mar=c(3,3,1,1),mgp=c(1.75,0.75,0))
         mVC <- apply(VC, 2, median)
         matplot(VC, type = "l", lty = 1)
-        abline(h = mVC, col = 1:length(mVC)) 
+        abline(h = mVC, col = 1:length(mVC))
 
         # plot BETA
-        if(length(beta)>0) 
+        if(length(beta)>0)
         {
           mBETA <- apply(BETA, 2, median)
           matplot(BETA, type = "l", lty = 1, col = 1:length(mBETA))
           abline(h = mBETA, col = 1:length(mBETA))
-          abline(h = 0, col = "gray") 
-        } 
- 
-        # plot GOF 
+          abline(h = 0, col = "gray")
+        }
+
+        # plot GOF
         if(gof)
         {
           for(k in 1:4)
           {
             hist(GOF[-1,k],xlim=range(GOF[,k]),main="",prob=TRUE,
-                 xlab=colnames(GOF)[k],col="lightblue",ylab="",yaxt="n")  
-            abline(v=GOF[1,k],col="red") 
+                 xlab=colnames(GOF)[k],col="lightblue",ylab="",yaxt="n")
+            abline(v=GOF[1,k],col="red")
           }
-        } 
+        }
 
       }
 
@@ -446,6 +476,7 @@ ame<-function (Y,Xdyad=NULL, Xrow=NULL, Xcol=NULL,
                 YPM=YPM,GOF=GOF)
   }
 
+  
   # symmetric output
   if(symmetric) 
   {
@@ -457,12 +488,11 @@ ame<-function (Y,Xdyad=NULL, Xrow=NULL, Xcol=NULL,
     rownames(U)<-rownames(ULUPM)<-colnames(ULUPM)<-rownames(Y)
     EZ<-.5*(EZ+t(EZ)) ; YPM<-.5*(YPM+t(YPM)) 
     fit<-list(BETA=BETA,VC=VC,APM=APM,U=U,L=L,ULUPM=ULUPM,EZ=EZ,
-              YPM=YPM,GOF=GOF)
+              YPM=YPM,GOF=GOF,GOF2=GOF2,  Asave=Asave, 
+              BETAsave = BETAsave, SAsave = SAsave, Usave = Usave)
   } 
 
   class(fit) <- "ame"
   fit
 }
-
-
 
